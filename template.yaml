@@ -9,29 +9,51 @@ Globals:
     # Automatically adds AllowMethods with a list of methods for this API
     EndpointConfiguration: EDGE      
     Cors:
-      AllowMethods: "'OPTIONS,GET'"
+      AllowMethods: "'OPTIONS,GET,POST'"
       AllowHeaders: "'Content-Type'"
       AllowOrigin: "'*'" 
   Function:
     Timeout: 5
 
 Resources:
-  S3Bucket:
+  PhotoFixerS3Bucket:
     Type: AWS::S3::Bucket
     Properties:
-      CorsConfiguration:
-        CorsRules:
-        - AllowedHeaders:
-            - "*"
-          AllowedMethods:
-            - GET
-            - PUT
-            - POST
-            - DELETE
-            - HEAD
-          AllowedOrigins:
-            - "*"
-
+      BucketName: ai-photo-fixer
+      AccessControl: PublicRead
+  UploadRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: upload-policy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:PutObjectAcl
+                Resource:
+                  !Sub
+                    - "arn:aws:s3:::${BucketName}/*"
+                    - {BucketName: !Ref PhotoFixerS3Bucket}
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource:
+                  Fn::Sub:
+                    - arn:aws:logs:${Region}:${AccountId}:log-group:/aws/lambda/*:*:*
+                    - { Region: !Ref AWS::Region, AccountId: !Ref AWS::AccountId }
   S3UploaderFunction:
     # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
     Type: AWS::Serverless::Function 
@@ -50,8 +72,11 @@ Resources:
         HttpPost:
           Type: Api
           Properties:
-            Path: '/'
-            Method: get
+            RestApiId: !Ref Api
+            Path: '/image/input'
+            binaryMediaTypes:
+              - 'multipart/form-data'
+            Method: POST
 
 Outputs:
   S3UploaderFunction:
@@ -62,4 +87,4 @@ Outputs:
     Value: !GetAtt S3UploaderFunctionRole.Arn
   S3BucketName:
     Description: S3 bucket
-    Value: !Ref S3Bucket
+    Value: !Ref PhotoFixerS3Bucket
